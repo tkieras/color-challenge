@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8"/>
+		<style>
+			body {
+				background-color: gainsboro;
+			}
+			button {
+				border: 2;
+				border-radius: 0.5rem;
+				background: #1E88E5;
+				color: white;
+				font-size: 16pt;
+				padding: 2pt 2pt 2pt 2pt;
+				margin: 4pt 4pt 0 0;
+			}
+			
+			#currentScoreMode {
+				position: fixed;
+				top:2%;
+				left:50%;
+				transform: translate(-50%, -50%);
+				font-size:20pt;
+			}
+			#score {
+				position: fixed;
+				top: 10%;
+				left: 50%;
+				transform: translate(-50%, -50%);
+				font-size: 20pt;
+			}
+			#word {
+				position: fixed;
+				top:40%;
+				left:50%;
+				transform: translate(-50%, -50%);
+				font-size: 64pt;
+			}
+			
+			#input {
+				display: flex;
+				flex-flow: row wrap;
+				position: fixed;
+				top: 75%;
+				left: 50%;
+				transform: translate(-50%, -50%);
+			}
+
+			.input > dt {
+				flex-basis: 20%;
+				padding: 2px 10px;
+				background: #333;
+				text-align: right;
+				color: #fff;
+			}
+
+			.input > dd {
+				flex-basis: 70%;
+				flex-grow: 1;
+				margin: 0;
+				padding: 2px 10px;
+				border-bottom: 1px solid #333;
+			}
+
+		</style>
+		<script>
+			// **** Configuration Values ****
+
+			// Which keys to use for input
+			// The number of keys in the list will determine the number of color options
+			// add or remove keys to adjust how many colors are used
+
+			const KEYS = ['h', 'j', 'k', 'l'];
+
+			// Available colors and their names
+			// color name : CSS color string
+			// The first N colors are chosen where N = length of KEYS
+
+			const COLOR_MAP = {
+				"red" : "#fe0000",
+				"green" : "#008000",
+				"blue" : "#011efe",
+				"purple" : "#fe00f6",
+				"yellow" : "#ffff00",
+				"orange" : "#ffa500",
+			}
+
+			const NEUTRAL_WORDS = [
+				"cat",
+				"dog",
+				"tree",
+				"cake",
+				"elephant",
+				"apple",
+				"flower",
+				"shoe",
+				"ice cream",
+				"bat",
+				"table",
+				"spoon",
+				"hat",
+				"jar"
+			];
+			
+
+			// Whether display defaults to hidden controls or not
+			var controlsHidden = true;
+
+			// MODE_MAP contains possible scoring modes 
+			// the string should be the description to display in the button
+			// the value should be a number between 0 and 1
+			// the value is the weight given to accuracy
+			// the weight given to speed is calculated as 1-value
+			const MODE_MAP = {
+				"Balance" : 0.50,
+				"Prefer Accuracy" : 0.75,
+				"Prefer Speed" : 0.25,
+				"Only Accuracy" : 1.0,
+				"Only Speed": 0.0,
+			}
+
+			// Constant used for turning average speed into a value in (0,1)
+			// speed score (0,1) = speed_base - (avg_speed in seconds) / speed_base
+			// a higher number makes it "easier" to get a higher speed score
+
+			const SPEED_BASE = 10;
+
+			// **** End of Configuration Values ****
+
+			const COLOR_COUNT = KEYS.length;
+			const COLOR_NAMES = Object.keys(COLOR_MAP);
+			const WORD_LIST = NEUTRAL_WORDS.concat(COLOR_NAMES.slice(0, COLOR_COUNT));
+			var initializedKeyMap = {};
+			const MODE_NAMES = Object.keys(MODE_MAP);
+
+			// Various global variables
+			var currentMode = 0;
+			var currentColorChoice;
+			
+			var accuracy = null;
+			var avgSpeed = null;
+			var totalRounds = 0;
+
+			var startTime = (new Date).getTime();
+
+			function initDisplay() {
+				var input = document.getElementById("input");
+
+				if(COLOR_NAMES.length < KEYS.length) {
+					alert("Error loading configuration: Not enough color values specified.")
+				}
+
+				if(MODE_NAMES.length == 0) {
+					alert("Error loading configuration: At least one mode must be defined.")
+				}
+
+				for(var i=0; i < COLOR_COUNT; i++) {
+
+					colorName = COLOR_NAMES[i];
+					keyName = KEYS[i];
+					var node = document.createElement("DIV");
+					node.className = "input";
+
+					var termNode = document.createElement("DT");
+					var colorNameNode = document.createTextNode(colorName);
+					termNode.appendChild(colorNameNode);
+					node.appendChild(termNode);
+
+					var dscptNode = document.createElement("DD");
+					var keyNameNode = document.createTextNode(keyName);
+					dscptNode.appendChild(keyNameNode);
+					node.appendChild(dscptNode);
+
+					input.appendChild(node);
+					initializedKeyMap[keyName] = colorName;
+
+				}
+				potentiallyHidden = document.getElementsByClassName("viewOptional");
+
+				for(element of potentiallyHidden) {
+					element.hidden = controlsHidden;
+				}
+
+				element = document.getElementById("currentScoreMode");
+
+				element.innerHTML = "Goal: " + MODE_NAMES[currentMode];
+
+				element = document.getElementById("toggleScoreMode");
+				nextMode = (currentMode+1)%MODE_NAMES.length;
+				element.innerHTML = "Set Goal: " + MODE_NAMES[nextMode];
+
+			}
+
+			function displayNewWord() {
+				var wordNode = document.getElementById("word");
+
+				var wordChoice = WORD_LIST[Math.floor(Math.random() * WORD_LIST.length)];
+
+				var colorChoice = COLOR_NAMES[Math.floor(Math.random() * KEYS.length)];
+
+				wordNode.style.color = COLOR_MAP[colorChoice];
+				wordNode.innerHTML = wordChoice;
+
+				currentColorChoice = colorChoice;
+				startTime = (new Date).getTime();
+				totalRounds += 1;
+			}
+
+
+			function evaluate(keyPress, currentColor, elapsedTime) {
+				var accuracy_update = 0;
+
+				if (currentColor == initializedKeyMap[keyPress]) {
+					accuracy_update = 1;
+				}
+
+				if(avgSpeed == null) {
+					avgSpeed = elapsedTime;
+				} else {
+					avgSpeed = (avgSpeed + ((1/totalRounds) * (elapsedTime - avgSpeed)));
+				}
+
+				if(accuracy == null) {
+					accuracy = accuracy_update;
+				} else {
+					accuracy = (accuracy + ((1/totalRounds) * (accuracy_update-accuracy)));
+				}
+	
+			}
+
+			function calculateScore() {
+				if (avgSpeed == null || accuracy == null) {
+					return 1.0;
+				}
+
+				var speedScore = Math.max((SPEED_BASE - (avgSpeed / 1000)) / SPEED_BASE, 0);
+				var accWeight = MODE_MAP[MODE_NAMES[currentMode]];
+				var speedWeight = 1-accWeight;
+
+				return (accWeight * accuracy) + (speedScore * speedWeight);
+			}
+
+
+			function updateScore() {
+				scoreNode = document.getElementById("score");
+
+				scoreNode.innerHTML = Number(calculateScore() * 100).toFixed(0) + "%";
+			}
+
+			function viewHandler() {
+				elements = document.getElementsByClassName("viewOptional");
+				button = document.getElementById("toggleView");
+
+				controlsHidden = !controlsHidden;
+
+				for(element of elements) {
+					element.hidden = controlsHidden;
+				}
+
+				button.innerHTML = controlsHidden ? "Show" : "Hide";
+				
+			}
+			
+			function modeHandler() {
+				currentMode = (currentMode + 1)%MODE_NAMES.length;
+
+				element = document.getElementById("currentScoreMode");
+
+				element.innerHTML = "Goal: " + MODE_NAMES[currentMode];
+
+				nextMode = (currentMode + 1)%MODE_NAMES.length
+
+				element = document.getElementById("toggleScoreMode");
+
+				element.innerHTML = "Set Goal: " + MODE_NAMES[nextMode];
+
+				updateScore();
+
+			}
+
+
+			window.onload = function(){
+			   initDisplay();
+			   displayNewWord();
+			};
+
+			document.addEventListener('keyup', (event) => {
+				const keyName = event.key;
+				
+				if (KEYS.includes(keyName)) {
+					timeNow = (new Date).getTime();
+					evaluate(keyName, currentColorChoice, timeNow-startTime);
+					updateScore();
+					displayNewWord();
+				}
+			}, false);
+			
+		</script>
+	</head>
+	<body>
+		<div><button id="toggleView" 
+			onclick="viewHandler()">Show</button></div>
+		
+		<div><button id="toggleScoreMode" class="viewOptional"
+			onclick="modeHandler()"></button></div>	
+
+		<div id="score" class="viewOptional"></div>
+		
+		<div id="currentScoreMode"></div>
+
+		<div id="word"></div>
+		
+		<dl id="input"></dl>
+	</body>
+</html>
